@@ -38,17 +38,26 @@ public:
     bool       Attach            (const char * path, const char * name, uint32_t delete_upon_process_exit);
     bool       IsAttached        ();
     void       MakeHash          (const char * key, uint32_t key_len);
-    bool       GetKeyValCopy     ();
-    bool       GetUidValCopy     (uint32_t uid);
+    uint32_t   GetKeyKeyCopy     ();
+    uint32_t   GetUidKeyCopy     (uint32_t uid);
+    uint32_t   GetKeyValCopy     ();
+    uint32_t   GetUidValCopy     (uint32_t uid);
+    uint32_t   AddKeyVal         (              long add);
+    uint32_t   AddUidVal         (uint32_t uid, long add);
     uint32_t   PutKeyVal         (const char * val, uint32_t val_len);
-    bool       DelKeyVal         ();
-    bool       DelUidVal         (uint32_t uid);
+    uint32_t   DelKeyVal         ();
+    uint32_t   DelUidVal         (uint32_t uid);
+    uint32_t   UpdKeyVal         ();
+    uint32_t   UpdUidVal         (uint32_t uid);
+    uint32_t   UpdCallbackCopy   (const char * val, uint32_t val_len);
+    void       TabCopyIterate    (uint32_t * win_addr, uint32_t * tab_addr);
     char     * Del               ();
     uint64_t   DebugGetGarbage   ();
     void       DebugVerbosityLess();
     void       DebugVerbosityMore();
     void       SetDataNeedFactor (uint32_t data_needed_factor);
     void       SetIsLockable     (uint32_t is_lockable);
+    void       SetIsFixedLen     (uint32_t fixed_key_len, uint32_t fixed_val_len);
     void     * QNew              (uint32_t shf_qs, uint32_t shf_q_items, uint32_t shf_q_item_size, uint32_t qids_nolock_max);
     void     * QGet              ();
     void       QDel              ();
@@ -56,7 +65,9 @@ public:
     uint32_t   QGetName          (const char * name, uint32_t name_len);
     void       QPushHead         (uint32_t qid, uint32_t qiid);
     uint32_t   QPullTail         (uint32_t qid                                            ); /* sets shf_qiid & shf_qiid_addr & shf_qiid_addr_len */
+#if 0
     uint32_t   QTakeItem         (uint32_t qid                                            ); /* sets shf_qiid & shf_qiid_addr & shf_qiid_addr_len */
+#endif
     uint32_t   QPushHeadPullTail (uint32_t push_qid, uint32_t push_qiid, uint32_t pull_qid); /* sets shf_qiid & shf_qiid_addr & shf_qiid_addr_len */
     void       QFlush            (uint32_t pull_qid);
     bool       QIsReady          ();

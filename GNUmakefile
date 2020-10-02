@@ -21,24 +21,37 @@ MAKEFLAGS = --no-builtin-rules
 # Preserve intermediate files:
 .SECONDARY:
 
-CC              = gcc
 CXXFLAGS        = -c -g -W -Waggregate-return -Wall -Werror -Wcast-align -Wcast-qual -Wchar-subscripts
 CXXFLAGS       += -Wcomment -Wformat -Wmissing-declarations -Wparentheses -Wpointer-arith -Wredundant-decls
 CXXFLAGS       +=  -Wreturn-type -Wshadow -Wswitch -Wtrigraphs -Wwrite-strings -O
-CXXFLAGS       += -fno-inline-functions-called-once -fPIC -Wuninitialized -Wunused -march=x86-64 -I. -Isrc
+CXXFLAGS       += -fPIC -Wuninitialized -Wunused -march=x86-64 -I. -Isrc
+CXXFLAGS       += $(CXXFLAGS-$@)
 CFLAGS          = -Wimplicit -Wmissing-prototypes -Wnested-externs -Wstrict-prototypes -std=gnu99
+ifneq ($(filter clang,$(MAKECMDGOALS)),)
+LD              = clang++
+CC              = clang
+CXXFLAGS       += -Wno-address-of-packed-member -Wno-cast-align -Wno-unused-function
+else
+LD              = g++
+CC              = gcc
+CXXFLAGS       += -fno-inline-functions-called-once
+endif
 ifneq ($(filter debug,$(MAKECMDGOALS)),)
-BUILD_TYPE      = debug
-BUILD_TYPE_NODE = Debug
+BUILD_TYPE      = debug-$(CC)
 CXXFLAGS       += -DSHF_DEBUG_VERSION
 else
-BUILD_TYPE = release
-BUILD_TYPE_NODE = Release
-CXXFLAGS       += -O3
+ifneq ($(filter coverage,$(MAKECMDGOALS)),)
+BUILD_TYPE      = release-coverage-$(CC)
+# See https://stackoverflow.com/questions/1305665/how-to-compile-different-c-files-with-different-cflags-using-makefile
+CXXFLAGS-release-coverage-$(CC)/shf.o += -fprofile-arcs -ftest-coverage
+LDFLAGS         = -lgcov --coverage
+else
+BUILD_TYPE      = release-$(CC)
+CXXFLAGS       += -O2
+endif
 endif
 DEPS_H          = $(wildcard ./src/*.h)
 DEPS_HPP        = $(wildcard ./src/*.hpp)
-NODE_SRCS       =                                    $(filter-out %build,$(wildcard ./wrappers/nodejs/*))
 PROD_SRCS_C     =                                    $(filter-out ./src/test%,$(wildcard ./src/*.c))
 PROD_SRCS_C     =                                    $(filter-out ./src/main%,$(wildcard ./src/*.c))
 PROD_OBJS_C     = $(patsubst ./src/%,$(BUILD_TYPE)/%,$(filter-out ./src/test%,$(patsubst %.c,%.o,$(PROD_SRCS_C))))
@@ -62,8 +75,6 @@ endif
 ifneq ($(filter clean,$(MAKECMDGOALS)),)
 else
 DUMMY := $(shell mkdir $(BUILD_TYPE) 2>&1)
-NODEJS := $(shell perl -e 'print `which node` || `which nodejs`' 2>&1)
-NODE_GYP := $(shell which node-gyp 2>&1)
 ifdef SHF_DEBUG_MAKE
 $(info make: variable: DEPS_H=$(DEPS_H))
 $(info make: variable: DEPS_HPP=$(DEPS_HPP))
@@ -80,19 +91,15 @@ $(info make: variable: TEST_SRCS_CPP=$(TEST_SRCS_CPP))
 $(info make: variable: TEST_OBJS_CPP=$(TEST_OBJS_CPP))
 $(info make: variable: TEST_EXES=$(TEST_EXES))
 $(info make: variable: BUILD_TYPE=$(BUILD_TYPE))
-$(info make: variable: BUILD_TYPE_NODE=$(BUILD_TYPE_NODE))
-$(info make: variable: NODEJS=$(NODEJS))
-$(info make: variable: NODE_GYP=$(NODE_GYP))
-$(info make: variable: NODE_SRCS=$(NODE_SRCS))
 endif
 endif
 
-all: eolws tab $(MAIN_EXES) $(TEST_EXES) $(BUILD_TYPE)/SharedHashFile.a $(BUILD_TYPE)/SharedHashFile.node
+all: eolws tab $(MAIN_EXES) $(TEST_EXES) $(BUILD_TYPE)/SharedHashFile.a
 	@ls -al /dev/shm/ | egrep test | perl -lane 'print $$_; $$any.= $$_; sub END{if(length($$any) > 0){print qq[make: unwanted /dev/shm/test* files detected after testing!]; exit 1}}'
+	@echo "make: note: useful targets: make (release|debug|release coverage) (clang) (load)"
 	@echo "make: note: prefix make with SHF_DEBUG_MAKE=1 to debug this make file"
 	@echo "make: note: prefix make with SHF_SKIP_TESTS=1 to build but do not run tests"
-	@echo "make: note: prefix make with SHF_FORCE_MAKE_NODE=1 to force building SharedHashFile.node"
-	@echo "make: note: prefix make with SHF_PERFORMANCE_TEST_(ENABLE|CPUS|KEYS)=(1|4|10000000) to run perf test"
+	@echo "make: note: prefix make with SHF_PERFORMANCE_TEST_(ENABLE|LOCK|MIX|CPUS|KEYS|FIXED|DEBUG)=(1|1|2|4|10000000|0|0) to run perf test"
 	@echo "make: built $(TEST_EXE_SKIP) $(BUILD_TYPE) version"
 
 $(BUILD_TYPE)/%.o: ./src/%.c $(DEPS_H)
@@ -105,11 +112,11 @@ $(BUILD_TYPE)/%.o: ./src/%.cpp $(DEPS_H) $(DEPS_HPP)
 
 $(BUILD_TYPE)/%.a: $(PROD_OBJS_C) $(PROD_OBJS_CPP)
 	@echo "make: archiving: $@"
-	@ar ruv $@ $^
+	@ar rv $@ $^
 
 $(BUILD_TYPE)/%.t: $(BUILD_TYPE)/%.o $(PROD_OBJS_C) $(PROD_OBJS_CPP)
 	@echo "make: linking: $@"
-	@g++ -o $@ $^ -pthread -lm
+	@$(LD) -o $@ $^ -pthread -lm $(LDFLAGS)
 ifndef SHF_SKIP_TESTS
 	@echo "make: running: $@"
 	@PATH=$$PATH:$(BUILD_TYPE) ./$@ 2>&1 | perl src/verbose-if-fail.pl $@.tout
@@ -117,54 +124,38 @@ endif
 
 $(BUILD_TYPE)/%: $(BUILD_TYPE)/main.%.o $(PROD_OBJS_C) $(PROD_OBJS_CPP)
 	@echo "make: linking: $@"
-	@g++ -o $@ $^ -pthread -lm
-
-$(BUILD_TYPE)/SharedHashFile.node: $(MAIN_EXES) $(TEST_EXES) $(BUILD_TYPE)/SharedHashFile.a $(NODE_SRCS)
-	@echo "make: building: $@"
-ifneq ($(findstring node-gyp,$(NODE_GYP)),)
-	@cd ./wrappers/nodejs && SHF_BUILD_TYPE=$(BUILD_TYPE) NODE_DEBUG=mymod node-gyp --$(BUILD_TYPE) rebuild
-	@echo "make: copying node wrapper & test program to $(BUILD_TYPE) build folder"
-	@cp ./wrappers/nodejs/build/$(BUILD_TYPE_NODE)/SharedHashFile.node $(BUILD_TYPE)/.
-	@cp ./wrappers/nodejs/SharedHashFile*.js $(BUILD_TYPE)/.
-ifndef SHF_SKIP_TESTS
-	@echo "make: running test"
-	@cd $(BUILD_TYPE) && PATH=$$PATH:. NODE_DEBUG=mymod $(NODEJS) ./SharedHashFile.js 2>&1 | perl ../src/verbose-if-fail.pl SharedHashFile.js.tout
-	@echo "make: running test: perf test calling dummy C++ functions"
-	@cd $(BUILD_TYPE) && NODE_DEBUG=mymod $(NODEJS) ./SharedHashFileDummy.js 2>&1 | perl ../src/verbose-if-fail.pl SharedHashFileDummy.js.tout
-endif
-	@echo "make: building test: IPC: Unix Domain Socket"
-	@cd $(BUILD_TYPE) && cp ../wrappers/nodejs/TestIpcSocket.* .
-	@cd $(BUILD_TYPE) && gcc -o TestIpcSocket.o $(CFLAGS) $(CXXFLAGS) -I ../src TestIpcSocket.c
-	@cd $(BUILD_TYPE) && gcc -o TestIpcSocket TestIpcSocket.o tap.o shf.o murmurhash3.o -pthread -lm
-ifndef SHF_SKIP_TESTS
-	@echo "make: running test: IPC: Unix Domain Socket"
-	@cd $(BUILD_TYPE) && ./TestIpcSocket 2>&1 | perl ../src/verbose-if-fail.pl TestIpcSocket.tout
-	@echo "make: running test: IPC: SharedHashFile Queue"
-	@cd $(BUILD_TYPE) && cp ../wrappers/nodejs/TestIpcQueue.js .
-	@cd $(BUILD_TYPE) && PATH=$$PATH:. ./test.q.shf.t c2js 2>&1 | perl ../src/verbose-if-fail.pl test.q.shf.t.c2js.tout
-endif
-else
-ifdef SHF_FORCE_MAKE_NODE
-	$(error make: note: !!! node-gyp not found; cannot build nodejs interface; e.g. install via: sudo apt-get install nodejs && sudo apt-get install node-gyp !!!)
-else
-	@echo  "make: note: !!! node-gyp not found; cannot build nodejs interface; e.g. install via: sudo apt-get install nodejs && sudo apt-get install node-gyp !!!"
-endif
-endif
+	@$(LD) -o $@ $^ -pthread -lm $(LDFLAGS)
 
 release: all
 
 debug: all
 
+coverage:
+	@echo make: creating and examining coverage files
+	@PATH=$(BUILD_TYPE):$$PATH SHF_PERFORMANCE_TEST_ENABLE=1 SHF_PERFORMANCE_TEST_KEYS=1000000 test.f.shf.t
+ifneq ($(filter clang,$(MAKECMDGOALS)),)
+	@llvm-cov gcov $(BUILD_TYPE)/shf.c 2>&1 | egrep --after-context=1 "'src/shf.c'" | perl -lane 'printf qq[make: coverage: %s\n],$$_;'
+else
+	@gcov          $(BUILD_TYPE)/shf.c 2>&1 | egrep --after-context=1 "'src/shf.c'" | perl -lane 'printf qq[make: coverage: %s\n],$$_;'
+endif
+	@mv *.gcov $(BUILD_TYPE)/.
+
+clang:
+	@echo make: compiled using clang
+
+load: release
+	@PATH=$(BUILD_TYPE):$$PATH SHF_PERFORMANCE_TEST_ENABLE=1 test.f.shf.t
+
 fixme:
-	 find -type f | egrep -v "/(release|debug)/" | egrep -v "/.html/" | egrep "\.(c|cc|cpp|h|hpp|js|md|txt)" | xargs egrep --line-number -i fixme | perl -lane 'print qq[>].$$_.qq[<]; $$any+=length($$_)>0; sub END{printf qq[make: %u line(s) with fixme\n],$$any; exit($$any>0)}'
+	 find -type f | egrep -v "/(release\-|debug\-|cov-int)" | egrep -v "/.html/" | egrep "\.(c|cc|cpp|h|hpp|js|md|txt)" | xargs egrep --line-number -i fixme | perl -lane 'print qq[>].$$_.qq[<]; $$any+=length($$_)>0; sub END{printf qq[make: %u line(s) with fixme\n],$$any; exit($$any>0)}'
 
 tab:
-	@find -type f | egrep -v "/(release|debug)/" | egrep -v "/.html/" | egrep "\.(c|cc|cpp|h|hpp|js|md|txt)" | xargs  grep --line-number -P "\\t" | perl -lane 'print qq[>].$$_.qq[<]; $$any+=length($$_)>0; sub END{printf qq[make: %u line(s) with tab\n],$$any; exit($$any>0)}'
+	@find -type f | egrep -v "/(release\-|debug\-|cov-int)" | egrep -v "/.html/" | egrep "\.(c|cc|cpp|h|hpp|js|md|txt)" | xargs  grep --line-number -P "\\t" | perl -lane 'print qq[>].$$_.qq[<]; $$any+=length($$_)>0; sub END{printf qq[make: %u line(s) with tab\n],$$any; exit($$any>0)}'
 
 eolws:
-	@find -type f | egrep -v "/(release|debug)/" | egrep -v "/.html/" | egrep "\.(c|cc|cpp|h|hpp|js|md|txt)" | xargs  grep --line-number -P "\\s+$$" | perl -lane 'print qq[>].$$_.qq[<]; $$any+=length($$_)>0; sub END{printf qq[make: %u line(s) with eol whitespace\n],$$any; exit($$any>0)}'
+	@find -type f | egrep -v "/(release\-|debug\-|cov-int)" | egrep -v "/.html/" | egrep "\.(c|cc|cpp|h|hpp|js|md|txt)" | xargs  grep --line-number -P "\\s+$$" | perl -lane 'print qq[>].$$_.qq[<]; $$any+=length($$_)>0; sub END{printf qq[make: %u line(s) with eol whitespace\n],$$any; exit($$any>0)}'
 
-.PHONY: all clean release debug fixme tab eolws
+.PHONY: all clean release debug coverage clang load fixme tab eolws
 
 clean:
-	rm -rf release debug wrappers/nodejs/build
+	rm -rf release-* debug-*

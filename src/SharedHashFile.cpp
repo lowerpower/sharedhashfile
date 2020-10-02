@@ -90,18 +90,46 @@ SharedHashFile::MakeHash( // todo: warn in docs that ::MakeHash works __thread g
     shf_make_hash(key, key_len);
 }
 
-bool
+uint32_t
+SharedHashFile::GetKeyKeyCopy()
+{
+    SHF_DEBUG("%s()\n", __FUNCTION__);
+    return shf_get_key_key_copy(shf);
+}
+
+uint32_t
+SharedHashFile::GetUidKeyCopy(uint32_t uid)
+{
+    SHF_DEBUG("%s()\n", __FUNCTION__);
+    return shf_get_uid_key_copy(shf, uid);
+}
+
+uint32_t
 SharedHashFile::GetKeyValCopy()
 {
     SHF_DEBUG("%s()\n", __FUNCTION__);
     return shf_get_key_val_copy(shf);
 }
 
-bool
+uint32_t
 SharedHashFile::GetUidValCopy(uint32_t uid)
 {
     SHF_DEBUG("%s()\n", __FUNCTION__);
     return shf_get_uid_val_copy(shf, uid);
+}
+
+uint32_t
+SharedHashFile::AddKeyVal(long add)
+{
+    SHF_DEBUG("%s()\n", __FUNCTION__);
+    return shf_add_key_val(shf, add);
+}
+
+uint32_t
+SharedHashFile::AddUidVal(uint32_t uid, long add)
+{
+    SHF_DEBUG("%s()\n", __FUNCTION__);
+    return shf_add_uid_val(shf, uid, add);
 }
 
 uint32_t
@@ -113,18 +141,46 @@ SharedHashFile::PutKeyVal(
     return shf_put_key_val(shf, val, val_len);
 }
 
-bool
+uint32_t
 SharedHashFile::DelKeyVal()
 {
     SHF_DEBUG("%s()\n", __FUNCTION__);
     return shf_del_key_val(shf);
 }
 
-bool
+uint32_t
 SharedHashFile::DelUidVal(uint32_t uid)
 {
     SHF_DEBUG("%s()\n", __FUNCTION__);
     return shf_del_uid_val(shf, uid);
+}
+
+uint32_t
+SharedHashFile::UpdKeyVal()
+{
+    SHF_DEBUG("%s()\n", __FUNCTION__);
+    return shf_upd_key_val(shf);
+}
+
+uint32_t
+SharedHashFile::UpdUidVal(uint32_t uid)
+{
+    SHF_DEBUG("%s()\n", __FUNCTION__);
+    return shf_upd_uid_val(shf, uid);
+}
+
+uint32_t
+SharedHashFile::UpdCallbackCopy(const char * val, uint32_t val_len)
+{
+    SHF_DEBUG("%s()\n", __FUNCTION__);
+    return shf_upd_callback_copy(val, val_len);
+}
+
+void
+SharedHashFile::TabCopyIterate(uint32_t * win_addr, uint32_t * tab_addr)
+{
+    SHF_DEBUG("%s()\n", __FUNCTION__);
+    shf_tab_copy_iterate(shf, win_addr, tab_addr);
 }
 
 char *
@@ -168,6 +224,13 @@ SharedHashFile::SetIsLockable(uint32_t is_lockable)
 {
     SHF_DEBUG("%s()\n", __FUNCTION__);
     shf_set_is_lockable(shf, is_lockable);
+}
+
+void
+SharedHashFile::SetIsFixedLen(uint32_t fixed_key_len, uint32_t fixed_val_len)
+{
+    SHF_DEBUG("%s()\n", __FUNCTION__);
+    shf_set_is_fixed_len(shf, fixed_key_len, fixed_val_len);
 }
 
 void *
@@ -219,12 +282,14 @@ SharedHashFile::QPullTail(uint32_t qid) /* sets shf_qiid & shf_qiid_addr & shf_q
     return shf_q_pull_tail(shf, qid);
 }
 
+#if 0
 uint32_t
 SharedHashFile::QTakeItem(uint32_t qid) /* sets shf_qiid & shf_qiid_addr & shf_qiid_addr_len */
 {
     SHF_DEBUG("%s()\n", __FUNCTION__);
     return shf_q_take_item(shf, qid);
 }
+#endif
 
 uint32_t
 SharedHashFile::QPushHeadPullTail(uint32_t push_qid, uint32_t push_qiid, uint32_t pull_qid) { /* sets shf_qiid & shf_qiid_addr & shf_qiid_addr_len */

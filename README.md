@@ -1,10 +1,15 @@
-# SharedHashFile: Share Hash Tables Stored In Memory Mapped Files Between Arbitrary Processes & Threads
+# SharedHashFile: Share Hash Tables With Stable Key Hints Stored In Memory Mapped Files Between Arbitrary Processes
 
-SharedHashFile is a lightweight NoSQL key value store / hash table, a zero-copy IPC queue, & a multiplexed IPC logging library written in C for Linux.  There is no server process.  Data is read and written directly from/to shared memory or SSD; no sockets are used between SharedHashFile and the application program. APIs for C, C++, & [nodejs](wrappers/nodejs/README.md).
-
-![Nailed It](http://simonhf.github.io/sharedhashfile/images/10m-tps-nailed-it.jpeg)
+SharedHashFile is a lightweight, embeddable NoSQL key value store / hash table with stable key hints, a zero-copy IPC queue, & a multiplexed IPC logging library written in C for Linux.  Data accessed directly in shared memory; no sockets are used between SharedHashFile and the application program; no server process. APIs for C & C++.
 
 [![Build Status](https://travis-ci.org/simonhf/sharedhashfile.svg?branch=master)](https://travis-ci.org/simonhf/sharedhashfile)
+[![Coverage Status](https://coveralls.io/repos/github/simonhf/sharedhashfile/badge.svg?branch=master)](https://coveralls.io/github/simonhf/sharedhashfile?branch=master)
+[![Coverity Scan Build Status](https://img.shields.io/coverity/scan/17867.svg)](https://scan.coverity.com/projects/simonhf-sharedhashfile)
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/5e9eac5334064beb84a841d4987ab548)](https://www.codacy.com/app/simonhf/sharedhashfile?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=simonhf/sharedhashfile&amp;utm_campaign=Badge_Grade)
+[![GNU Affero General Public License version 3](https://img.shields.io/badge/license-AGPL3-green.svg)](https://opensource.org/licenses/AGPL-3.0)
+[![Gitter](https://badges.gitter.im/sharedhashfile/community.svg)](https://gitter.im/sharedhashfile/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
+
+![Nailed It](http://simonhf.github.io/sharedhashfile/images/10m-tps-nailed-it.jpeg)
 
 ## Project Goals
 
@@ -17,7 +22,7 @@ SharedHashFile is a lightweight NoSQL key value store / hash table, a zero-copy 
 
 ### Data Storage
 
-Data is kept in shared memory by default, making all the data accessible to separate processes and/or threads. Up to 4 billion keys can be stored in a single SharedHashFile hash table which is limited in size only by available RAM.
+Data is kept in shared memory by default, making all the data accessible to any processes. Up to 4 billion keys can be stored in a single SharedHashFile hash table which is limited in size only by available RAM.
 
 For example, let's say you have a box with 128GB RAM of which 96GB is used by SharedHashFile hash tables. The box has 24 cores and there are 24 processes (e.g. nginx forked slave processes or whatever) concurrently accessing the 96GB of hash tables. Each process shares exactly the same 96GB of shared memory.
 
@@ -43,13 +48,19 @@ SharedHashFile is designed to expand gracefully as more key,value pairs are inse
 
 To reduce contention there is no single global hash table lock by design. Instead keys are sharded across 256 locks to reduce lock contention.
 
-Can multiple threads in multiple processes also access SharedHashFile hash tables concurrently? Yes.
+### Optional Fixed Length Keys and Values
+
+For use cases with high levels of writing then performance can suffer due to too many system mmap() calls due to recycling / shrinking memory mapped areas when removing memory holes due to deleted keys.
+
+To improve performance for write heavy use cases, keys and values can be fixed in size across the entire hash table, which means deleted keys can be easily re-used without creating memory holes, and no expensive system mmap() calls are necessary.
+
+Using fixed length keys and values also reduces the amount of RAM used because the key and value sizes are no longer stored, e.g. 100 million keys and values would save 100 million * 8 bytes = 800 million bytes.
 
 ### Persistent Storage
 
 Hash tables are stored in memory mapped files in `/dev/shm` which means the data persists even when no processes are using hash tables. However, the hash tables will not survive rebooting.
 
-### Unique Identifers
+### Unique Identifers AKA Stable Key Hints
 
 Unlike other hash tables, every key stored in SharedHashFile gets assigned its own UID, e.g. ```shf_make_hash("key", 3); uint32_t uid =  shf_put_key_val(shf, "val", 3)```. To get the same key in the future, choose between accessing the key via its key, or via its UID, e.g. ```shf_make_hash("key", 3); shf_get_key_val_copy(shf)``` or ```shf_get_uid_val_copy(shf, uid)```.
 
@@ -57,13 +68,15 @@ What are UIDs useful for? UIDs don't take up any extra resources and can be thou
 
 Example usage: If uid1 points to key ```"user-id-<xyz>"```, and uid2 points to key ```"facebook.com"```, then another 'mash up' key might be ```"<uid1><uid2>"```. Want to find out if ```"user-id-<xyz>"``` has ```"facebook.com"``` in their personal URL whitelist? Just see if key ```"<uid1><uid2>"``` exists.
 
+What does the 'stable' in 'stable key hint' mean? It means that the UID stays the same even if the key and/or value bytes move around in memory.
+
 ### Zero-Copy IPC Queues
 
 How does it work? Create X fixed-sized queue elements, and Y queues to push & pull those queue elements to/from.
 
 Example: Imagine two processes ```Process A``` & ```Process B```. ```Process A``` creates 100,000 queue elements and 3 queues; ```queue-free```, ```queue-a2b```, and ```queue-b2a```. Intitally, all queue elements are pushed onto ```queue-free```. ```Process A``` then spawns ```Process B``` which attaches to the SharedHashFile in order to pull from ```queue-a2b```. To perform zero-copy IPC then ```Process A``` can pull queue elements from ```queue-free```, manipulate the fixed size, shared memory queue elements, and push the queue elements into ```queue-a2b```. ```Process B``` does the opposite; pulls queue elements from ```queue-a2b```, manipulates the fixed size, shared memory queue queue elements, and pushes the queue elements into ```queue-b2a```. ```Process A``` can also pull queue items from ```queue-b2a``` in order to digest the results from ```Process B```.
 
-So how many queue elements per second can be moved back and forth by ```Processes A``` & ```Process B```? On a Lenovo W530 laptop then about 90 million per second if both ```Process A``` & ```Process B``` are written in C. Or about 7 million per second if  ```Process A``` is written in C and ```Process B``` is written in javascript for nodejs.
+So how many queue elements per second can be moved back and forth by ```Processes A``` & ```Process B```? On a Lenovo W530 laptop then about 90 million per second if both ```Process A``` & ```Process B``` are written in C.
 
 Note: When a queue element is moved from one queue to another then it is not copied, only a reference is updated.
 
@@ -393,59 +406,6 @@ GET  0.0   0.0    0    0 300.0  0  0  0  0  0  0  0100  0  0  0  0  0  0  0  0  
 DB size: 2.6G   /dev/shm/test-lmdb-20848
 ```
 
-## Performance comparison with native javascript associative array in nodejs
-
-Comparing stats for 100,000 short keys then the performance & size of RAM differences are not so big; first SharedHashFile, then javascript:
-
-```
-ok 25 - nodejs: put expected number of              keys // estimate 1,204,820 keys per second, 23,140KB RAM
-ok 26 - nodejs: got expected number of non-existing keys // estimate 1,886,793 keys per second
-ok 27 - nodejs: got expected number of     existing keys // estimate 1,724,135 keys per second
-ok 29 - nodejs: del expected number of     existing keys // estimate 1,960,780 keys per second
-
-ok 31 - nodejs: put expected number of              keys // estimate 1,136,366 keys per second via js hash table, 25,644KB RAM
-ok 32 - nodejs: got expected number of non-existing keys // estimate 1,333,332 keys per second via js hash table
-ok 33 - nodejs: got expected number of     existing keys // estimate 2,083,329 keys per second via js hash table
-ok 34 - nodejs: del expected number of     existing keys // estimate 1,369,864 keys per second via js hash table
-```
-
-Comparing stats for 5,000,000 short keys then the performance & size of RAM differences are clearer; first SharedHashFile, then javascript:
-
-```
-ok 25 - nodejs: put expected number of              keys // estimate 958,222 keys per second, 324,348KB RAM
-ok 26 - nodejs: got expected number of non-existing keys // estimate 1,925,298 keys per second
-ok 27 - nodejs: got expected number of     existing keys // estimate 1,438,435 keys per second
-ok 29 - nodejs: del expected number of     existing keys // estimate 1,662,787 keys per second
-
-ok 31 - nodejs: put expected number of              keys // estimate 875,350 keys per second via js hash table, 710,088KB RAM
-ok 32 - nodejs: got expected number of non-existing keys // estimate 1,766,784 keys per second via js hash table
-ok 33 - nodejs: got expected number of     existing keys // estimate 1,778,094 keys per second via js hash table
-ok 34 - nodejs: del expected number of     existing keys // estimate 1,549,907 keys per second via js hash table
-```
-
-However, comparing stats for 6,000,000 short keys then the performance & size of RAM differences are huge; first SharedHashFile, then javascript:
-
-```
-ok 25 - nodejs: put expected number of              keys // estimate 978,314 keys per second, 356,104KB RAM
-ok 26 - nodejs: got expected number of non-existing keys // estimate 1,881,467 keys per second
-ok 27 - nodejs: got expected number of     existing keys // estimate 1,460,209 keys per second
-ok 29 - nodejs: del expected number of     existing keys // estimate 1,545,197 keys per second
-
-ok 31 - nodejs: put expected number of              keys // estimate 332,650 keys per second via js hash table, 1,395,824KB RAM
-ok 32 - nodejs: got expected number of non-existing keys // estimate 249,211 keys per second via js hash table
-ok 33 - nodejs: got expected number of     existing keys // estimate 169,678 keys per second via js hash table
-ok 34 - nodejs: del expected number of     existing keys // estimate 885,217 keys per second via js hash table
-```
-
-Reasons to use SharedHashFile in nodejs instead of native javascript associative arrays:
-
-* The RAM to store key values via native javascript associative arrays is limited to the memory which holds about 5 million short key values.
-* The RAM to store key values via native javascript associative arrays is over 2x more than SharedHashFile; i.e. 710MB versus 324MB for 5 million key values. Or 4x more if you push javascript to the edges of its memory footprint; i.e. 456MB versus 1.4GB for 6 million key values.
-* The performance to access key values via native javascript associative arrays does not increase linearly with the number of keys; i.e. javascript can access its native associative array at a rate of 2 million keys per second when only 100,000 keys are stored, but this slows down to only 183,000 keys per second when 6 million keys are stored.
-* SharedHashFile key values can be accessed concurrently by other (C, C++, or nodejs) processes.
-* SharedHashFile key values can live beyond the particular nodejs process life time.
-* SharedHashFile key values can be deleted instantly by deleting the entire SharedHashFile (note: the above figures show the time for deleting all keys individually).
-
 ## TODO
 
 * Add high performance IPC queue notification mechanism and tests based upon eventfd.
@@ -453,7 +413,6 @@ Reasons to use SharedHashFile in nodejs instead of native javascript associative
 * Add performance test for multiplexed logging and compare to e.g. log4cxx.
 * Allow values bigger than 4KB to be their own mmap(); so IPC queue & log addrs never change.
 * Auto dump remaining shared memory log atexit.
-* Port shf_log() to nodejs and convert c2js test.
 * Extend shf_log() to seemlessly log to a file instead of stdout.
 * Convert shf.log to work with shf_log() instead of slower fopen().
 * Add API documentation via doxygen for log operations.

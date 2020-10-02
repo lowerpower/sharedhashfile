@@ -32,7 +32,7 @@
  * a zero-copy IPC queue library written in C for Linux. There is no
  * server process. Data is read and written directly from/to shared
  * memory or SSD; no sockets are used between SharedHashFile and the
- * application program. APIs for C, C++, & nodejs.
+ * application program. APIs for C & C++.
  *
  * ![Nailed It](http://simonhf.github.io/sharedhashfile/images/10m-tps-nailed-it.jpeg)
  *
@@ -198,7 +198,6 @@
  *
  * How many qiids per second can be pulled & pushed between 2 processes?
  * - On a Lenovo W530 then ~ 90 million per second; C(++) <-> C(++).
- * - On a Lenovo W530 then ~ 7 million per second; C(++) <-> nodejs.
  * - Note: Figures based upon minimal qid memory access.
  * - Note: Figures based upon the hybrid shf_q_push_head_pull_tail().
  *
@@ -342,41 +341,71 @@ typedef union SHF_DATA_TYPE {
     uint8_t as_u08;
 } __attribute__((packed)) SHF_DATA_TYPE;
 
+#define SHF_RET_OK           (0)    /* e.g. if nothing went wrong */
+#define SHF_RET_KEY_FOUND    (1<<0) /* e.g. if key or UID found */
+#define SHF_RET_BAD_VAL      (1<<1) /* e.g. if          updating a key with wrong sized value */
+#define SHF_RET_BAD_CB       (1<<2) /* e.g. if callback updating a key with wrong sized value */
+#define SHF_RET_KEY_PUT      (1<<3) /* e.g. if key put */
+#define SHF_RET_NOT_TTL      (1<<4) /* e.g. if key del fails due to unmatching TTL */
+#define SHF_RET_KEY_NONE     (1<<7) /* e.g. if key or UID not found */
+
 /* UINT32_MAX; note: defined here for use with either C or C++ clients */
 #define SHF_DATA_TYPE_DELETED (0xff)
 #define SHF_UID_NONE          (4294967295U) /*!< Value used to represent no uid */
 #define SHF_QID_NONE          (4294967295U) /*!< Value used to represent no qid */
 #define SHF_QIID_NONE         (4294967295U) /*!< Value used to represent no qiid */
 
-extern __thread uint32_t   shf_uid          ;
-extern __thread char     * shf_val          ;
-extern __thread uint32_t   shf_val_len      ;
-extern __thread uint32_t   shf_qiid         ;
-extern __thread char     * shf_qiid_addr    ;
-extern __thread uint32_t   shf_qiid_addr_len;
+extern __thread uint32_t       shf_ttl          ;
+extern __thread uint32_t       shf_uid          ;
+extern __thread char         * shf_key          ;
+extern __thread uint32_t       shf_key_len      ;
+extern __thread void         * shf_key_addr     ;
+extern __thread char         * shf_val          ;
+extern __thread uint32_t       shf_val_len      ;
+extern __thread void         * shf_val_addr     ;
+extern __thread long           shf_val_long     ;
+extern __thread SHF_TAB_MMAP * shf_tab          ;
+extern __thread uint32_t       shf_tab_len      ;
+extern __thread uint32_t       shf_qiid         ;
+extern __thread char         * shf_qiid_addr    ;
+extern __thread uint32_t       shf_qiid_addr_len;
 
 extern pid_t      shf_exec_child           (const char * child_path, const char * child_file, const char * child_argument_1, char  * child_argument_2);
 extern char     * shf_backticks            (const char * command);
 extern double     shf_get_time_in_seconds  (void);
-extern uint64_t   shf_get_vfs_available    (SHF * shf);
 extern void       shf_init                 (void);
 extern void       shf_detach               (SHF * shf);
+extern uint64_t   shf_get_vfs_available    (const char * path);
 extern SHF      * shf_attach_existing      (const char * path, const char * name);
 extern SHF      * shf_attach               (const char * path, const char * name, uint32_t delete_upon_process_exit);
 extern void       shf_make_hash            (const char * key, uint32_t key_len);
+extern void       shf_copy_key             (uint32_t key_len);
+extern void       shf_copy_val             (uint32_t val_len);
 extern uint32_t   shf_put_key_val          (SHF * shf, const char * val, uint32_t val_len);
-extern int        shf_get_key_val_copy     (SHF * shf);
-extern int        shf_get_uid_val_copy     (SHF * shf, uint32_t uid);
-extern void     * shf_get_key_val_addr     (SHF * shf);
-extern void     * shf_get_uid_val_addr     (SHF * shf, uint32_t uid);
-extern int        shf_del_key_val          (SHF * shf);
-extern int        shf_del_uid_val          (SHF * shf, uint32_t uid);
+extern uint32_t   shf_get_key_val_addr     (SHF * shf                        );
+extern uint32_t   shf_get_uid_val_addr     (SHF * shf, uint32_t uid          );
+extern uint32_t   shf_get_key_key_copy     (SHF * shf                        );
+extern uint32_t   shf_get_uid_key_copy     (SHF * shf, uint32_t uid          );
+extern uint32_t   shf_get_key_val_copy     (SHF * shf                        );
+extern uint32_t   shf_get_uid_val_copy     (SHF * shf, uint32_t uid          );
+extern uint32_t   shf_add_key_val_atom     (SHF * shf              , long add);
+extern uint32_t   shf_add_uid_val_atom     (SHF * shf, uint32_t uid, long add);
+extern uint32_t   shf_add_key_val          (SHF * shf              , long add);
+extern uint32_t   shf_add_uid_val          (SHF * shf, uint32_t uid, long add);
+extern uint32_t   shf_del_key_val          (SHF * shf                        );
+extern uint32_t   shf_del_uid_val          (SHF * shf, uint32_t uid          );
+extern uint32_t   shf_upd_key_val          (SHF * shf                        );
+extern uint32_t   shf_upd_uid_val          (SHF * shf, uint32_t uid          );
+extern void       shf_upd_callback_set     (uint32_t (*shf_upd_callback_new)(const char * val, uint32_t val_len));
+extern uint32_t   shf_upd_callback_copy    (const char * val, uint32_t val_len);
+extern void       shf_tab_copy_iterate     (SHF * shf, uint32_t * win_addr, uint32_t * tab_addr);
 extern char     * shf_del                  (SHF * shf);
 extern uint64_t   shf_debug_get_garbage    (SHF * shf);
 extern void       shf_debug_verbosity_less (void);
 extern void       shf_debug_verbosity_more (void);
 extern void       shf_set_data_need_factor (uint32_t data_needed_factor);
 extern void       shf_set_is_lockable      (SHF * shf, uint32_t is_lockable);
+extern void       shf_set_is_fixed_len     (SHF * shf, uint32_t fixed_key_len, uint32_t fixed_val_len);
 extern void     * shf_q_new                (SHF * shf, uint32_t shf_qs, uint32_t shf_q_items, uint32_t shf_q_item_size, uint32_t qids_nolock_max);
 extern void     * shf_q_get                (SHF * shf);
 extern void       shf_q_del                (SHF * shf);
@@ -385,15 +414,21 @@ extern uint32_t   shf_q_get_name           (SHF * shf, const char * name, uint32
 extern void       shf_q_push_head          (SHF * shf, uint32_t      qid, uint32_t qiid);
 extern uint32_t   shf_q_pull_tail          (SHF * shf, uint32_t      qid                                       );
 extern uint32_t   shf_q_push_head_pull_tail(SHF * shf, uint32_t push_qid, uint32_t push_qiid, uint32_t pull_qid);
+#if 0
 extern uint32_t   shf_q_take_item          (SHF * shf, uint32_t      qiid                                      );
+#endif
 extern void       shf_q_flush              (SHF * shf, uint32_t pull_qid);
+#ifdef SHF_DEBUG_VERSION
 extern void       shf_q_size               (SHF * shf, uint32_t      qid);
+#endif
 extern uint32_t   shf_q_is_ready           (SHF * shf);
 extern void       shf_race_init            (SHF * shf, const char * name, uint32_t name_len                 );
 extern void       shf_race_start           (SHF * shf, const char * name, uint32_t name_len, uint32_t horses);
+extern void       shf_log_init             (void);
 extern void       shf_log_thread_new       (SHF * shf, uint32_t log_size, int log_fd);
 extern void       shf_log_thread_del       (SHF * shf);
 extern void       shf_log_attach_existing  (SHF * shf);
+extern void       shf_log_detach_existing  (SHF * shf);
 extern void       shf_log_append           (SHF * shf, const char * log_line, uint32_t log_line_len);
 extern void       shf_log_output_set       (void (*shf_log_output_new)(char * log_line, uint32_t log_line_len));
 extern int        shf_log_vfprintf         (FILE * stream, const char * format, va_list ap);

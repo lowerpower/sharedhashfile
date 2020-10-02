@@ -57,10 +57,11 @@ typedef struct SHF_ROW_MMAP {
 
 typedef struct SHF_TAB_MMAP {
     volatile uint32_t     tab_size             ; /* size of memory (mod 4KB) */
-    volatile uint32_t     tab_used             ; /* size of memory           */
-    volatile uint32_t     tab_refs_used        ; /* refs allocated & used    */
-    volatile uint32_t     tab_data_free        ; /* data bytes marked free   */
-    volatile uint32_t     tab_data_used        ; /* data bytes        used   */
+    volatile uint32_t     tab_used             ; /* size of memory */
+    volatile uint32_t     tab_refs_used        ; /* refs allocated & used */
+    volatile uint32_t     tab_data_free_pos    ; /* next data bytes marked free if shf->fixed_key_len */
+    volatile uint32_t     tab_data_free        ; /*      data bytes marked free */
+    volatile uint32_t     tab_data_used        ; /*      data bytes        used */
     volatile SHF_ROW_MMAP row[SHF_ROWS_PER_TAB];
     // todo: base to linked list of deleted key,value pairs
     volatile uint8_t      data[0];
@@ -79,8 +80,6 @@ typedef struct SHF_WIN_MMAP {
              SHF_LOCK     lock                  ;
     volatile SHF_OFF_MMAP tabs[SHF_TABS_PER_WIN]; /* 4KB == 2048 tabs * uint16_t */
     volatile uint32_t     tabs_used             ; /* number of tabs in win */
-    volatile uint32_t     tabs_refs_size        ; /* refs allocated & used or not */
-    volatile uint32_t     tabs_refs_used        ; /* refs allocated & used        */
     volatile uint64_t     tabs_mmaps            ; /* times 1 tab mmapped */
     volatile uint64_t     tabs_mremaps          ; /* times 1 tab mremapped */
     volatile uint64_t     tabs_shrunk           ; /* times 1 tab shrunk */
@@ -128,25 +127,27 @@ typedef struct SHF_Q {
     uint32_t          q_is_ready      ; /* successfully called shf_q_(new|get)()? */
 } __attribute__((packed)) SHF_Q;
 
+#define SHF_PID_MAX (131072) /* todo: convert this to dynamically use cat /proc/sys/kernel/pid_max */
+
 typedef struct SHF_LOG_MMAP {
 #ifdef SHF_DEBUG_VERSION
-             uint32_t magic      ;
+             uint32_t magic            ;
 #endif
-             int      fd         ;
-             SHF_LOCK lock       ;
-             double   time_init  ;
-             uint32_t second     ; /* remember this unique second */
-             uint32_t write_fail ; /* throttles write() failures */
-    volatile uint32_t writing    ; /* write() loop in progress? */
-             uint32_t used_hi    ; /* used high water mark */
-             uint32_t used_hi_new;
-    volatile uint32_t used       ;
-    volatile uint32_t size       ;
-    volatile uint32_t running    ;
-    volatile uint32_t stopped    ;
-    volatile uint8_t  tids[65536];
-    volatile uint8_t  tid_id     ;
-             char     bytes[0]   ;
+             int      fd               ;
+             SHF_LOCK lock             ;
+             double   time_init        ;
+             uint32_t second           ; /* remember this unique second */
+             uint32_t write_fail       ; /* throttles write() failures */
+    volatile uint32_t writing          ; /* write() loop in progress? */
+             uint32_t used_hi          ; /* used high water mark */
+             uint32_t used_hi_new      ;
+    volatile uint32_t used             ;
+    volatile uint32_t size             ;
+    volatile uint32_t running          ;
+    volatile uint32_t stopped          ;
+    volatile uint8_t  tids[SHF_PID_MAX];
+    volatile uint8_t  tid_id           ;
+             char     bytes[0]         ;
 } __attribute__((packed)) SHF_LOG_MMAP;
 
 typedef struct SHF {
@@ -156,11 +157,14 @@ typedef struct SHF {
     char         * path                                    ; /* e.g. '/dev/shm' */
     char         * name                                    ; /* e.g. 'myshf' */
     uint32_t       is_lockable                             ; /* 0 means single threaded use only, 1 means lockable */
+    uint32_t       is_fixed_key_val_len                    ; /* 0 means key values can be any length, 1 means key values all the same length */
+    uint32_t       fixed_key_len                           ; /* length of key   if is_fixed_key_val_len */
+    uint32_t       fixed_val_len                           ; /* length of value if is_fixed_key_val_len */
     uint32_t       count_mmap                              ; /* number of mmap()s */
     uint32_t       count_xalloc                            ; /* number of (c|m)alloc()s */
     SHF_Q          q                                       ; /* for IPC q   */
     SHF_LOG_MMAP * log                                     ; /* for IPC log; value for key '__log' */
-    uint32_t       log_thread_acive                        ; /* for IPC log; we have the log thread? */
+    uint32_t       log_thread_active                       ; /* for IPC log; we have the log thread? */
 } __attribute__((packed)) SHF;
 
 typedef union SHF_UID {
@@ -180,6 +184,8 @@ typedef union SHF_HASH { // todo: just use uid instead
     uint8_t  u08[16];
 } __attribute__((packed)) SHF_HASH;
 
-extern __thread SHF_HASH shf_hash;
+extern __thread       SHF_HASH   shf_hash        ;
+extern __thread const char     * shf_hash_key    ;
+extern __thread       uint32_t   shf_hash_key_len;
 
 #endif /* __SHF_PRIVATE_H__ */

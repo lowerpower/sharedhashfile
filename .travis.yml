@@ -1,9 +1,48 @@
-language: cpp
+os:
+  - linux
+
+language:
+  - cpp
+
 compiler:
-- gcc
+  - gcc
+
+env:
+  global:
+   # The next declaration is the encrypted COVERITY_SCAN_TOKEN, created
+   #   via the "travis encrypt" command using the project repo's public key
+   - secure: "WbMkGWvcdx2yOMlSNyAo9LRL5OCIgO8ksPW77yl70f34kfpk4P1lNKulg0Gh8ONHG1iBmZROBXyG1PKQCx2OqBsi//xGEDnNMq2FFNrj+8Ch1u3yA4n8z0Kl2IlGmHUm79pJ2WPTykMPXW8VBs6aL9vPSnF9TtGHL93g9FC8sY8="
+
+addons:
+  coverity_scan:
+    project:
+      name: "simonhf/sharedhashfile"
+      description: "Build submitted via Travis CI"
+    notification_email: travis-coverity@sharedhashfile.com
+    # https://www.synopsys.com/blogs/software-security/coverity-and-issues-in-third-party-code/
+    # only have Coverity examine shf.c
+    build_command_prepend: "cov-configure --compiler gcc --comptype gcc --template ; make clean ; make release ; rm release-gcc/shf.o release-gcc/test.q.shf.t"
+    build_command: "make release"
+    branch_pattern: master
+
 before_install:
-- sudo apt-get update
-- sudo apt-get install nodejs npm
-- sudo npm config set registry http://registry.npmjs.org/
-- sudo npm install -g node-gyp
-script: make release && SHF_DEBUG_MAKE=1 make && SHF_DEBUG_MAKE=1 make debug
+  - sudo apt-get update
+  - sudo apt-get install lcov
+  - echo -n | openssl s_client -connect scan.coverity.com:443 | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' | sudo tee -a /etc/ssl/certs/ca-
+
+install:
+  - gem install coveralls-lcov
+
+script:
+  - make clean ; SHF_DEBUG_MAKE=1 make release && SHF_DEBUG_MAKE=1 make debug && SHF_DEBUG_MAKE=1 make release coverage
+
+after_script:
+  - which gcc
+  - gcc -v
+  - find cov-int -type f
+  - cat cov-int/build-log.txt
+  - cat cov-int/scm_log.txt
+
+after_success:
+  - lcov --compat-libtool --directory release-coverage-gcc --capture --output-file release-coverage-gcc/coverage.info
+  - coveralls-lcov release-coverage-gcc/coverage.info
